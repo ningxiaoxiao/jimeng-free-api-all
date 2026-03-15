@@ -1,6 +1,6 @@
 # Jimeng AI Free API
 
-即梦 AI 免费 API 服务 - 支持文生图、图生图、视频生成的 OpenAI 兼容接口
+即梦 AI 免费 API 服务 - 支持文生图、图生图、视频生成、TTS 语音生成的 OpenAI 兼容接口
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Version](https://img.shields.io/badge/version-v0.8.6-green.svg)
@@ -13,13 +13,14 @@
 
 ### 项目概述
 
-Jimeng AI Free API 是一个逆向工程的 API 服务器，将即梦 AI（Jimeng AI）的图像和视频生成能力封装为 OpenAI 兼容的 API 接口。支持最新的 **jimeng-5.0**、**jimeng-4.6** 文生图模型、**Seedance 2.0 多模态智能视频生成**（模型名 `jimeng-video-seedance-2.0`，支持图片/视频/音频混合上传）及 **Seedance 2.0-fast 快速版**（模型名 `jimeng-video-seedance-2.0-fast`），零配置部署，多路 token 支持。
+Jimeng AI Free API 是一个逆向工程的 API 服务器，将即梦 AI（Jimeng AI）的图像、视频和 TTS 语音生成能力封装为 OpenAI 兼容的 API 接口。支持最新的 **jimeng-5.0**、**jimeng-4.6** 文生图模型、**Seedance 2.0 多模态智能视频生成**（模型名 `jimeng-video-seedance-2.0`，支持图片/视频/音频混合上传）、**Seedance 2.0-fast 快速版**（模型名 `jimeng-video-seedance-2.0-fast`）以及 **jimeng-tts-1** 语音合成模型，零配置部署，多路 token 支持。
 
 ### 核心功能
 
 - 🖼️ **文生图**：支持 jimeng-5.0、jimeng-4.6、jimeng-4.5 等多款模型，最高 4K 分辨率
 - 🎭 **图生图**：多图合成，支持 1-10 张输入图片
 - 🎬 **视频生成**：jimeng-video-3.5-pro 等模型，支持首帧/尾帧控制
+- 🔊 **TTS 语音生成**：支持通过 `voice_id` 合成 MP3 语音，返回 URL、Base64 或二进制音频
 - 🌊 **Seedance 2.0 / 2.0-fast**：多模态智能视频生成，支持图片/视频/音频混合上传，@1、@2 占位符引用素材，fast 版本生成更快
 - 🔗 **OpenAI 兼容**：完全兼容 OpenAI API 格式，无缝对接现有客户端
 - 🔄 **多账号支持**：支持多个 sessionid 轮询使用
@@ -42,6 +43,7 @@ Jimeng AI Free API 是一个逆向工程的 API 服务器，将即梦 AI（Jimen
 | 图生图 | 多图合成生成新图片 | jimeng-5.0, jimeng-4.6, jimeng-4.5 等 | ✅ 可用 |
 | 文生视频 | 根据文本描述生成视频 | jimeng-video-3.5-pro 等 | ✅ 可用 |
 | 图生视频 | 使用首帧/尾帧图片生成视频 | jimeng-video-3.0 等 | ✅ 可用 |
+| TTS 语音生成 | 根据文本和 `voice_id` 生成音频 | jimeng-tts-1 | ✅ 可用 |
 | 多图智能视频 | Seedance 2.0 多模态混合生成 | jimeng-video-seedance-2.0, seedance-2.0 | ✅ 可用 |
 | 多图快速视频 | Seedance 2.0-fast 快速生成 | jimeng-video-seedance-2.0-fast, seedance-2.0-fast | ✅ 可用 |
 | 音频驱动视频 | Seedance 图片+音频混合生成 | jimeng-video-seedance-2.0, seedance-2.0-fast | ✅ 可用 |
@@ -151,6 +153,7 @@ Authorization: Bearer sessionid1,sessionid2,sessionid3
 | `/v1/images/generations` | POST | 文生图/图生图接口（支持 images 可选参数） |
 | `/v1/images/compositions` | POST | 图生图接口（向后兼容） |
 | `/v1/videos/generations` | POST | 视频生成接口 |
+| `/v1/audio/speech` | POST | TTS 语音生成接口 |
 | `/v1/models` | GET | 获取模型列表 |
 
 ### 快速开始
@@ -203,6 +206,21 @@ curl -X POST http://localhost:8000/v1/videos/generations \
   }'
 ```
 
+**TTS 语音生成示例：**
+
+```bash
+curl -X POST http://localhost:8000/v1/audio/speech \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_sessionid" \
+  -d '{
+    "model": "jimeng-tts-1",
+    "input": "你好，这是一个 TTS 测试。",
+    "voice_id": "7607511946732129562",
+    "voice_name": "我的音色",
+    "response_format": "url"
+  }'
+```
+
 **Seedance 2.0 多图视频示例：**
 
 ```bash
@@ -241,6 +259,85 @@ curl -X POST http://localhost:8000/v1/videos/generations \
   -F "files=@/path/to/audio.wav"
 ```
 
+**Seedance 直接复用已上传素材并异步提交：**
+
+```bash
+curl -X POST http://localhost:8000/v1/videos/generations \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_sessionid" \
+  -d '{
+    "model": "seedance-2.0-fast",
+    "ratio": "16:9",
+    "resolution": "720p",
+    "duration": 10,
+    "async": true,
+    "material_list": [
+      {
+        "material_type": "image",
+        "image_info": {
+          "image_uri": "tos-cn-i-tb4s082cfz/your-background-uri",
+          "width": 1376,
+          "height": 768
+        }
+      },
+      {
+        "material_type": "image",
+        "image_info": {
+          "image_uri": "tos-cn-i-tb4s082cfz/your-face-a-uri",
+          "width": 746,
+          "height": 936
+        }
+      },
+      {
+        "material_type": "image",
+        "image_info": {
+          "image_uri": "tos-cn-i-tb4s082cfz/your-face-b-uri",
+          "width": 565,
+          "height": 523
+        }
+      },
+      {
+        "material_type": "image",
+        "image_info": {
+          "image_uri": "tos-cn-i-tb4s082cfz/your-layout-ref-uri",
+          "width": 2560,
+          "height": 1428
+        }
+      },
+      {
+        "material_type": "audio",
+        "audio_info": {
+          "vid": "v0d870g10004xxxxxxxxxxxx",
+          "duration": 14000
+        }
+      }
+    ],
+    "meta_list": [
+      { "meta_type": "text", "text": "参考" },
+      { "meta_type": "image", "material_ref": { "material_idx": 3 } },
+      { "meta_type": "text", "text": "的人物构图、布光和背景，保持背景物体的一致性。\n音色参考" },
+      { "meta_type": "audio", "material_ref": { "material_idx": 4 } },
+      { "meta_type": "text", "text": "。\n使用" },
+      { "meta_type": "image", "material_ref": { "material_idx": 1 } },
+      { "meta_type": "image", "material_ref": { "material_idx": 2 } },
+      { "meta_type": "text", "text": "拼凑为一个人物，生成一段口播，自然流畅的肢体语言，口播内容：\"内容行业真正贵的，从来都不是创意本身，而是试错成本。过去为什么MCN能成立？为什么艺人公司能成立？\"" }
+    ]
+  }'
+```
+
+**查看已保存的任务列表：**
+
+```bash
+curl http://localhost:8000/v1/videos/tasks
+```
+
+**按 history_id 查询结果并拿下载 URL：**
+
+```bash
+curl -H "Authorization: Bearer your_sessionid" \
+  http://localhost:8000/v1/videos/tasks/24506608820236
+```
+
 ## 项目结构
 
 ```
@@ -272,6 +369,7 @@ jimeng-free-api-all/
 │       ├── exceptions/          # 异常类
 │       └── configs/             # 配置模式
 ├── configs/                     # 配置文件目录
+├── data/                        # 异步视频任务记录（自动生成）
 ├── doc/                         # 文档资源
 ├── Dockerfile                   # Docker 构建文件
 ├── package.json                 # 项目配置
@@ -391,9 +489,17 @@ jimeng-free-api-all/
 | model | string | 是 | - | jimeng-video-seedance-2.0（推荐）、jimeng-video-seedance-2.0-fast（快速版）或 seedance-2.0 |
 | prompt | string | 否 | - | 提示词，使用 @1、@2 引用素材（图片/视频/音频） |
 | ratio | string | 否 | 4:3 | 宽高比 |
+| resolution | string | 否 | 720p | 输出分辨率 |
 | duration | number | 否 | 4 | 视频时长 4-15 秒 |
 | files | file[] | 是* | - | 上传的素材文件（图片/视频/音频，multipart） |
 | file_paths | array | 是* | - | 素材URL数组（JSON） |
+| materials | array | 否 | [] | 直接传已上传素材的简化数组（`uri`/`vid`） |
+| material_list | array | 否 | [] | 直接传即梦抓包里的原始素材数组 |
+| meta_list | array | 否 | [] | 直接传即梦抓包里的原始 meta 数组 |
+| seed | number | 否 | 随机 | 随机种子 |
+| workspace_id | number | 否 | 0 | 工作区 ID |
+| async | boolean | 否 | false | 为 `true` 时只提交任务，立即返回 `history_id` |
+| wait_for_result | boolean | 否 | true | 显式控制是否等待成片，优先级高于 `async` |
 
 **支持的素材类型：**
 - 图片：jpg, png, webp, gif, bmp
@@ -403,6 +509,12 @@ jimeng-free-api-all/
 **提示词占位符：**
 - `@1` / `@图1` / `@image1` - 引用第一个素材
 - `@2` / `@图2` / `@image2` - 引用第二个素材
+
+**异步批量生成建议：**
+- 批量跑口播时，使用 `async: true`，接口会立即返回 `submit_id` 和 `history_id`
+- 任务会自动追加保存到 `data/jimeng-video-tasks.jsonl`
+- 后续用 `GET /v1/videos/tasks/:historyId` 查询状态；完成后返回高清下载 URL
+- `material_list` / `meta_list` 需要使用真实的 `image_uri` / `vid`，不能直接传前端页面里的资源 UUID
 
 ## 效果展示
 
@@ -512,7 +624,25 @@ Authorization: Bearer sessionid1,sessionid2,sessionid3
 
 </details>
 
+<details>
+<summary>如何批量提交口播并在后续下载？</summary>
+
+1. 调用 `POST /v1/videos/generations` 并传 `async: true`
+2. 从响应里拿到 `history_id`
+3. 任务会自动保存到 `data/jimeng-video-tasks.jsonl`
+4. 稍后调用 `GET /v1/videos/tasks/:historyId` 获取状态和下载 URL
+
+</details>
+
 ## 更新日志
+
+### v0.8.7 (2026-03-16) - Seedance 资源复用与异步批量提交
+
+- ✨ **支持直接复用即梦已上传素材**：`/v1/videos/generations` 新增 `materials`、`material_list`、`meta_list`，可直接提交抓包里的资源而无需重复上传
+- ✨ **支持异步提交 Seedance 视频**：新增 `async` / `wait_for_result`，适合批量口播生成；提交后立即返回 `submit_id` 和 `history_id`
+- ✨ **自动保存 history_id**：所有异步 Seedance 任务都会落盘到 `data/jimeng-video-tasks.jsonl`
+- ✨ **新增任务查询接口**：`GET /v1/videos/tasks` 查看保存记录，`GET /v1/videos/tasks/:historyId` 查询状态并返回高清下载 URL
+- 🔧 **兼容中文冒号比例写法**：自动将 `16：9` 规范化为 `16:9`
 
 ### v0.8.6 (2026-02-20) - jimeng-5.0 正式版模型更新
 

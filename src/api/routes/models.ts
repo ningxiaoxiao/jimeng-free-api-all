@@ -14,6 +14,12 @@ export default {
                         "owned_by": "jimeng-free-api"
                     },
                     {
+                        "id": "jimeng-tts-1",
+                        "object": "model",
+                        "owned_by": "jimeng-free-api",
+                        "description": "即梦AI TTS 语音生成模型（需提供 voice_id）"
+                    },
+                    {
                         "id": "jimeng-5.0",
                         "object": "model",
                         "owned_by": "jimeng-free-api",

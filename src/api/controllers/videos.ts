@@ -1,6 +1,7 @@
 import _ from "lodash";
 import crypto from "crypto";
 import fs from "fs";
+import path from "path";
 
 import APIException from "@/lib/exceptions/APIException.ts";
 import EX from "@/api/consts/exceptions.ts";
@@ -76,7 +77,62 @@ interface UploadedMaterial {
   duration?: number;
   fps?: number;
   name?: string;
+  sourceFrom?: string;
+  platformType?: number;
 }
+
+interface DirectSeedanceMaterialInput {
+  type?: string;
+  material_type?: string;
+  uri?: string;
+  image_uri?: string;
+  vid?: string;
+  width?: number | string;
+  height?: number | string;
+  duration?: number | string;
+  fps?: number | string;
+  name?: string;
+  source_from?: string;
+  platform_type?: number | string;
+  image_info?: any;
+  video_info?: any;
+  audio_info?: any;
+}
+
+export interface SavedVideoTaskRecord {
+  history_id: string;
+  submit_id?: string;
+  model?: string;
+  prompt?: string;
+  ratio?: string;
+  resolution?: string;
+  duration?: number;
+  seed?: number;
+  workspace_id?: number;
+  material_count?: number;
+  meta_count?: number;
+  task_status?: "submitted" | "processing" | "completed" | "failed";
+  fail_code?: number;
+  item_id?: string;
+  url?: string;
+  source?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface SeedanceGenerationResult {
+  created: number;
+  model: string;
+  submitId: string;
+  historyId: string;
+  taskStatus: "submitted" | "completed";
+  savePath: string;
+  url?: string;
+  itemId?: string;
+}
+
+const VIDEO_TASK_STORE_DIR = path.join(process.cwd(), "data");
+const VIDEO_TASK_STORE_FILE = path.join(VIDEO_TASK_STORE_DIR, "jimeng-video-tasks.jsonl");
 
 // MIME 类型 → 素材类型映射
 const MIME_TO_MATERIAL_TYPE: Record<string, SeedanceMaterialType> = {
@@ -99,6 +155,326 @@ const EXT_TO_MATERIAL_TYPE: Record<string, SeedanceMaterialType> = {
 const MATERIAL_TYPE_CODE: Record<SeedanceMaterialType, number> = {
   image: 1, video: 2, audio: 3,
 };
+
+function toFiniteNumber(value: any): number | undefined {
+  if (_.isUndefined(value) || value === null || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function getNowIsoString() {
+  return new Date().toISOString();
+}
+
+export function getVideoTaskStorePath() {
+  return VIDEO_TASK_STORE_FILE;
+}
+
+function appendVideoTaskRecord(record: SavedVideoTaskRecord) {
+  fs.mkdirSync(VIDEO_TASK_STORE_DIR, { recursive: true });
+  const normalizedRecord = {
+    ...record,
+    updated_at: record.updated_at || getNowIsoString(),
+  };
+  fs.appendFileSync(VIDEO_TASK_STORE_FILE, `${JSON.stringify(normalizedRecord)}\n`, "utf8");
+}
+
+function loadSavedVideoTaskMap() {
+  const taskMap = new Map<string, SavedVideoTaskRecord>();
+  if (!fs.existsSync(VIDEO_TASK_STORE_FILE)) return taskMap;
+
+  const content = fs.readFileSync(VIDEO_TASK_STORE_FILE, "utf8");
+  const lines = content.split("\n").map((line) => line.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    try {
+      const record = JSON.parse(line);
+      if (!record?.history_id) continue;
+      const previous = taskMap.get(record.history_id) || {};
+      taskMap.set(record.history_id, {
+        ...previous,
+        ...record,
+      });
+    } catch (error) {
+      logger.warn(`跳过损坏的视频任务记录: ${error.message}`);
+    }
+  }
+
+  return taskMap;
+}
+
+export function listSavedVideoTasks(limit = 50) {
+  const safeLimit = Math.max(1, Math.min(limit, 200));
+  return [...loadSavedVideoTaskMap().values()]
+    .sort((a, b) => {
+      const left = Date.parse(b.updated_at || b.created_at || "") || 0;
+      const right = Date.parse(a.updated_at || a.created_at || "") || 0;
+      return left - right;
+    })
+    .slice(0, safeLimit);
+}
+
+export function getSavedVideoTask(historyId: string) {
+  return loadSavedVideoTaskMap().get(historyId) || null;
+}
+
+async function getVideoHistoryData(historyId: string, refreshToken: string) {
+  const result = await request("post", "/mweb/v1/get_history_by_ids", refreshToken, {
+    data: { history_ids: [historyId] },
+  });
+
+  return result.history_list?.[0] || result[historyId] || null;
+}
+
+async function resolveVideoUrlFromItemList(itemList: any[], refreshToken: string) {
+  const itemId = itemList?.[0]?.item_id
+    || itemList?.[0]?.id
+    || itemList?.[0]?.local_item_id
+    || itemList?.[0]?.common_attr?.id;
+
+  if (itemId) {
+    try {
+      const hqVideoUrl = await fetchHighQualityVideoUrl(String(itemId), refreshToken);
+      if (hqVideoUrl) {
+        return {
+          itemId: String(itemId),
+          videoUrl: hqVideoUrl,
+        };
+      }
+    } catch (error) {
+      logger.warn(`获取高质量视频URL失败，将使用预览URL作为回退: ${error.message}`);
+    }
+  } else {
+    logger.warn(`未能从item_list中提取item_id，将使用预览URL。item_list[0]键: ${itemList?.[0] ? Object.keys(itemList[0]).join(", ") : "无"}`);
+  }
+
+  const videoUrl = itemList?.[0]?.video?.transcoded_video?.origin?.video_url
+    || itemList?.[0]?.video?.play_url
+    || itemList?.[0]?.video?.download_url
+    || itemList?.[0]?.video?.url;
+
+  if (!videoUrl) {
+    throw new APIException(EX.API_IMAGE_GENERATION_FAILED, "未能获取视频URL");
+  }
+
+  return {
+    itemId: itemId ? String(itemId) : undefined,
+    videoUrl,
+  };
+}
+
+export async function querySeedanceVideoTask(historyId: string, refreshToken: string) {
+  const created = util.unixTimestamp();
+  const historyData = await getVideoHistoryData(historyId, refreshToken);
+  const savePath = getVideoTaskStorePath();
+  const savedTask = getSavedVideoTask(historyId);
+
+  if (!historyData) {
+    return {
+      created,
+      history_id: historyId,
+      task_status: "not_found",
+      upstream_status: null,
+      fail_code: null,
+      save_path: savePath,
+      saved_task: savedTask,
+      data: [],
+    };
+  }
+
+  const upstreamStatus = historyData.status;
+  const failCode = historyData.fail_code;
+  const itemList = historyData.item_list || [];
+
+  if (upstreamStatus === 20) {
+    appendVideoTaskRecord({
+      history_id: historyId,
+      task_status: "processing",
+    });
+    return {
+      created,
+      history_id: historyId,
+      task_status: "processing",
+      upstream_status: upstreamStatus,
+      fail_code: failCode || null,
+      save_path: savePath,
+      saved_task: getSavedVideoTask(historyId),
+      data: [],
+    };
+  }
+
+  if (upstreamStatus === 30) {
+    appendVideoTaskRecord({
+      history_id: historyId,
+      task_status: "failed",
+      fail_code: failCode,
+    });
+    return {
+      created,
+      history_id: historyId,
+      task_status: "failed",
+      upstream_status: upstreamStatus,
+      fail_code: failCode || null,
+      save_path: savePath,
+      saved_task: getSavedVideoTask(historyId),
+      data: [],
+    };
+  }
+
+  const { videoUrl, itemId } = await resolveVideoUrlFromItemList(itemList, refreshToken);
+
+  appendVideoTaskRecord({
+    history_id: historyId,
+    task_status: "completed",
+    fail_code: failCode,
+    item_id: itemId,
+    url: videoUrl,
+  });
+
+  return {
+    created,
+    history_id: historyId,
+    task_status: "completed",
+    upstream_status: upstreamStatus,
+    fail_code: failCode || null,
+    item_id: itemId || null,
+    save_path: savePath,
+    saved_task: getSavedVideoTask(historyId),
+    data: [
+      {
+        url: videoUrl,
+      },
+    ],
+  };
+}
+
+function resolveDirectMaterialType(material: DirectSeedanceMaterialInput): SeedanceMaterialType {
+  const rawType = String(
+    material?.type
+    || material?.material_type
+    || (material?.image_info ? "image" : "")
+    || (material?.video_info ? "video" : "")
+    || (material?.audio_info ? "audio" : "")
+  ).toLowerCase();
+
+  if (rawType === "image" || rawType === "video" || rawType === "audio") {
+    return rawType;
+  }
+
+  throw new Error(`不支持的直接素材类型: ${rawType || "unknown"}`);
+}
+
+function normalizeDirectMaterial(
+  material: DirectSeedanceMaterialInput,
+  fallbackWidth: number,
+  fallbackHeight: number
+): UploadedMaterial {
+  const type = resolveDirectMaterialType(material);
+
+  if (type === "image") {
+    const info = material.image_info || material;
+    const uri = info.image_uri || info.uri;
+    if (!uri) throw new Error("图片直接素材缺少 image_uri/uri");
+    return {
+      type,
+      uri,
+      width: toFiniteNumber(info.width) || fallbackWidth,
+      height: toFiniteNumber(info.height) || fallbackHeight,
+      name: info.name || "",
+      sourceFrom: info.source_from || "upload",
+      platformType: toFiniteNumber(info.platform_type) || 1,
+    };
+  }
+
+  if (type === "video") {
+    const info = material.video_info || material;
+    const vid = info.vid;
+    if (!vid) throw new Error("视频直接素材缺少 vid");
+    return {
+      type,
+      vid,
+      width: toFiniteNumber(info.width),
+      height: toFiniteNumber(info.height),
+      duration: toFiniteNumber(info.duration),
+      fps: toFiniteNumber(info.fps),
+      name: info.name || "",
+      sourceFrom: info.source_from || "upload",
+    };
+  }
+
+  const info = material.audio_info || material;
+  const vid = info.vid;
+  if (!vid) throw new Error("音频直接素材缺少 vid");
+  return {
+    type,
+    vid,
+    duration: toFiniteNumber(info.duration),
+    name: info.name || "",
+    sourceFrom: info.source_from || "upload",
+  };
+}
+
+function buildSeedanceMaterialList(materials: UploadedMaterial[]) {
+  return materials.map((mat) => {
+    const base = { type: "", id: util.uuid() };
+    if (mat.type === "image") {
+      return {
+        ...base,
+        material_type: "image",
+        image_info: {
+          type: "image",
+          id: util.uuid(),
+          source_from: mat.sourceFrom || "upload",
+          platform_type: mat.platformType || 1,
+          name: mat.name || "",
+          image_uri: mat.uri,
+          aigc_image: { type: "", id: util.uuid() },
+          width: mat.width,
+          height: mat.height,
+          format: "",
+          uri: mat.uri,
+        }
+      };
+    }
+    if (mat.type === "video") {
+      return {
+        ...base,
+        material_type: "video",
+        video_info: {
+          type: "video",
+          id: util.uuid(),
+          source_from: mat.sourceFrom || "upload",
+          name: mat.name || "",
+          vid: mat.vid,
+          fps: mat.fps || 0,
+          width: mat.width || 0,
+          height: mat.height || 0,
+          duration: mat.duration || 0,
+        }
+      };
+    }
+    return {
+      ...base,
+      material_type: "audio",
+      audio_info: {
+        type: "audio",
+        id: util.uuid(),
+        source_from: mat.sourceFrom || "upload",
+        vid: mat.vid,
+        duration: mat.duration || 0,
+        name: mat.name || "",
+      }
+    };
+  });
+}
+
+function extractUploadedMaterialsFromMaterialList(
+  materialList: any[],
+  fallbackWidth: number,
+  fallbackHeight: number
+): UploadedMaterial[] {
+  return materialList.map((material) => normalizeDirectMaterial(material, fallbackWidth, fallbackHeight));
+}
 
 /**
  * 检测上传文件的素材类型
@@ -1501,15 +1877,28 @@ export async function generateSeedanceVideo(
     duration = 4,
     filePaths = [],
     files = [],
+    materials = [],
+    materialList = [],
+    metaList = [],
+    seed,
+    workspaceId = 0,
+    waitForResult = true,
   }: {
     ratio?: string;
     resolution?: string;
     duration?: number;
     filePaths?: string[];
     files?: any[];
+    materials?: DirectSeedanceMaterialInput[];
+    materialList?: any[];
+    metaList?: any[];
+    seed?: number;
+    workspaceId?: number;
+    waitForResult?: boolean;
   },
   refreshToken: string
-) {
+): Promise<SeedanceGenerationResult> {
+  const finalPrompt = _.isString(prompt) ? prompt : "";
   const model = getModel(_model);
   const benefitType = SEEDANCE_BENEFIT_TYPE_MAP[_model] || "dreamina_video_seedance_20_pro";
 
@@ -1528,9 +1917,20 @@ export async function generateSeedanceVideo(
 
   // 上传所有文件（支持图片/视频/音频）
   let uploadedMaterials: UploadedMaterial[] = [];
+  let resolvedMaterialList: any[] = [];
+
+  if (materialList && materialList.length > 0) {
+    uploadedMaterials = extractUploadedMaterialsFromMaterialList(materialList, width, height);
+    resolvedMaterialList = materialList;
+    logger.info(`Seedance: 直接使用 ${materialList.length} 个现有素材`);
+  } else if (materials && materials.length > 0) {
+    uploadedMaterials = materials.map((material) => normalizeDirectMaterial(material, width, height));
+    resolvedMaterialList = buildSeedanceMaterialList(uploadedMaterials);
+    logger.info(`Seedance: 直接使用 ${materials.length} 个现有素材`);
+  }
 
   // 处理上传的文件（multipart/form-data）
-  if (files && files.length > 0) {
+  if (uploadedMaterials.length === 0 && files && files.length > 0) {
     logger.info(`Seedance: 开始处理 ${files.length} 个上传文件`);
 
     for (let i = 0; i < files.length; i++) {
@@ -1572,7 +1972,7 @@ export async function generateSeedanceVideo(
         }
       }
     }
-  } else if (filePaths && filePaths.length > 0) {
+  } else if (uploadedMaterials.length === 0 && filePaths && filePaths.length > 0) {
     logger.info(`Seedance: 开始上传 ${filePaths.length} 个文件`);
 
     for (let i = 0; i < filePaths.length; i++) {
@@ -1619,6 +2019,10 @@ export async function generateSeedanceVideo(
     throw new APIException(EX.API_REQUEST_FAILED, 'Seedance 2.0 需要至少一个文件（图片/视频/音频）');
   }
 
+  if (resolvedMaterialList.length === 0) {
+    resolvedMaterialList = buildSeedanceMaterialList(uploadedMaterials);
+  }
+
   logger.info(`Seedance: 成功上传 ${uploadedMaterials.length} 个文件`);
 
   // 动态 benefit_type：包含视频素材时追加 _with_video 后缀
@@ -1626,61 +2030,10 @@ export async function generateSeedanceVideo(
   const finalBenefitType = hasVideoMaterial ? `${benefitType}_with_video` : benefitType;
 
   // 构建 material_list（支持图片/视频/音频）
-  const materialList = uploadedMaterials.map((mat) => {
-    const base = { type: "", id: util.uuid() };
-    if (mat.type === "image") {
-      return {
-        ...base,
-        material_type: "image",
-        image_info: {
-          type: "image",
-          id: util.uuid(),
-          source_from: "upload",
-          platform_type: 1,
-          name: "",
-          image_uri: mat.uri,
-          aigc_image: { type: "", id: util.uuid() },
-          width: mat.width,
-          height: mat.height,
-          format: "",
-          uri: mat.uri,
-        }
-      };
-    } else if (mat.type === "video") {
-      return {
-        ...base,
-        material_type: "video",
-        video_info: {
-          type: "video",
-          id: util.uuid(),
-          source_from: "upload",
-          name: mat.name || "",
-          vid: mat.vid,
-          fps: mat.fps || 0,
-          width: mat.width || 0,
-          height: mat.height || 0,
-          duration: mat.duration || 0,
-        }
-      };
-    } else {
-      // audio
-      return {
-        ...base,
-        material_type: "audio",
-        audio_info: {
-          type: "audio",
-          id: util.uuid(),
-          source_from: "upload",
-          vid: mat.vid,
-          duration: mat.duration || 0,
-          name: mat.name || "",
-        }
-      };
-    }
-  });
-
   // 解析 prompt 中的素材占位符（@1, @2 等）并构建 meta_list
-  const metaList = buildMetaListFromPrompt(prompt, uploadedMaterials);
+  const resolvedMetaList = metaList.length > 0
+    ? metaList
+    : buildMetaListFromPrompt(finalPrompt, uploadedMaterials);
 
   const componentId = util.uuid();
   const submitId = util.uuid();
@@ -1735,6 +2088,7 @@ export async function generateSeedanceVideo(
         resource_id_type: "str",
         resource_sub_type: "aigc"
       },
+      workspace_id: workspaceId,
       m_video_commerce_info_list: [{
         benefit_type: finalBenefitType,
         resource_id: "generate_video",
@@ -1787,12 +2141,12 @@ export async function generateSeedanceVideo(
                 unified_edit_input: {
                   type: "",
                   id: util.uuid(),
-                  material_list: materialList,
-                  meta_list: metaList
+                  material_list: resolvedMaterialList,
+                  meta_list: resolvedMetaList
                 }
               }],
               video_aspect_ratio: aspectRatio,
-              seed: Math.floor(Math.random() * 1000000000),
+              seed: Number.isFinite(seed) ? seed : Math.floor(Math.random() * 1000000000),
               model_req_key: model,
               priority: 0
             },
@@ -1832,6 +2186,40 @@ export async function generateSeedanceVideo(
   if (!historyId)
     throw new APIException(EX.API_IMAGE_GENERATION_FAILED, "记录ID不存在");
 
+  const created = util.unixTimestamp();
+  const normalizedHistoryId = String(historyId);
+  const savePath = getVideoTaskStorePath();
+
+  appendVideoTaskRecord({
+    history_id: normalizedHistoryId,
+    submit_id: submitId,
+    model: _model,
+    prompt: finalPrompt,
+    ratio,
+    resolution,
+    duration: actualDuration,
+    seed: Number.isFinite(seed) ? seed : undefined,
+    workspace_id: workspaceId,
+    material_count: resolvedMaterialList.length,
+    meta_count: resolvedMetaList.length,
+    task_status: "submitted",
+    source: "seedance",
+    created_at: getNowIsoString(),
+  });
+
+  logger.info(`Seedance: 已保存任务记录 -> ${savePath}`);
+
+  if (!waitForResult) {
+    return {
+      created,
+      model: _model,
+      submitId,
+      historyId: normalizedHistoryId,
+      taskStatus: "submitted",
+      savePath,
+    };
+  }
+
   // 轮询获取结果（与普通视频相同的逻辑）
   let status = 20, failCode, item_list = [];
   let retryCount = 0;
@@ -1867,6 +2255,11 @@ export async function generateSeedanceVideo(
       logger.info(`Seedance: 状态=${status}, 失败码=${failCode || '无'}`);
 
       if (status === 30) {
+        appendVideoTaskRecord({
+          history_id: normalizedHistoryId,
+          task_status: "failed",
+          fail_code: failCode,
+        });
         const error = failCode === 2038
           ? new APIException(EX.API_CONTENT_FILTERED, "内容被过滤")
           : new APIException(EX.API_IMAGE_GENERATION_FAILED, `生成失败，错误码: ${failCode}`);
@@ -1894,40 +2287,27 @@ export async function generateSeedanceVideo(
     throw error;
   }
 
-  // 尝试通过 get_local_item_list 获取高质量视频下载URL
-  const seedanceItemId = item_list?.[0]?.item_id
-    || item_list?.[0]?.id
-    || item_list?.[0]?.local_item_id
-    || item_list?.[0]?.common_attr?.id;
+  const { videoUrl, itemId } = await resolveVideoUrlFromItemList(item_list, refreshToken);
 
-  if (seedanceItemId) {
-    try {
-      const hqVideoUrl = await fetchHighQualityVideoUrl(String(seedanceItemId), refreshToken);
-      if (hqVideoUrl) {
-        logger.info(`Seedance: 视频生成成功（高质量），URL: ${hqVideoUrl}`);
-        return hqVideoUrl;
-      }
-    } catch (error) {
-      logger.warn(`Seedance: 获取高质量视频URL失败，将使用预览URL作为回退: ${error.message}`);
-    }
-  } else {
-    logger.warn(`Seedance: 未能从item_list中提取item_id，将使用预览URL。item_list[0]键: ${item_list?.[0] ? Object.keys(item_list[0]).join(', ') : '无'}`);
-  }
-
-  // 回退：提取预览视频URL
-  let videoUrl = item_list?.[0]?.video?.transcoded_video?.origin?.video_url
-    || item_list?.[0]?.video?.play_url
-    || item_list?.[0]?.video?.download_url
-    || item_list?.[0]?.video?.url;
-
-  if (!videoUrl) {
-    const error = new APIException(EX.API_IMAGE_GENERATION_FAILED, "未能获取视频URL");
-    error.historyId = historyId;
-    throw error;
-  }
+  appendVideoTaskRecord({
+    history_id: normalizedHistoryId,
+    task_status: "completed",
+    fail_code: failCode,
+    item_id: itemId,
+    url: videoUrl,
+  });
 
   logger.info(`Seedance: 视频生成成功，URL: ${videoUrl}`);
-  return videoUrl;
+  return {
+    created,
+    model: _model,
+    submitId,
+    historyId: normalizedHistoryId,
+    taskStatus: "completed",
+    savePath,
+    url: videoUrl,
+    itemId,
+  };
 }
 
 /**
