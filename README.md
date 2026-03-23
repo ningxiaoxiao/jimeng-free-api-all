@@ -155,6 +155,45 @@ Authorization: Bearer sessionid1,sessionid2,sessionid3
 | `/v1/videos/generations` | POST | 视频生成接口 |
 | `/v1/audio/speech` | POST | TTS 语音生成接口 |
 | `/v1/models` | GET | 获取模型列表 |
+| `/token/check` | POST | 检查单个 sessionid 是否有效 |
+| `/token/points` | POST | 查询一个或多个 sessionid 的积分 |
+| `/token/info` | POST | 聚合查询用户存活状态、基础信息和积分 |
+
+### Token 与用户信息接口
+
+项目内置了 3 个 token 相关接口：
+
+| 端点 | 方法 | 认证方式 | 说明 |
+|------|------|----------|------|
+| `/token/check` | POST | `body.token` | 检查单个 sessionid 是否有效，返回 `live` |
+| `/token/points` | POST | `Authorization: Bearer sessionid1,sessionid2` | 查询一个或多个账号的积分 |
+| `/token/info` | POST | `Authorization: Bearer sessionid1,sessionid2` 或 `body.token` | 一次返回账号有效性、基础用户信息和积分 |
+
+`/token/info` 返回统一结构：
+
+```json
+{
+  "count": 1,
+  "users": [
+    {
+      "tokenMasked": "abcd****wxyz",
+      "live": true,
+      "user": {
+        "userId": "1234567890",
+        "secUserId": "MS4wLjABAAAA...",
+        "nickname": "JimengUser",
+        "avatarUrl": "https://..."
+      },
+      "points": {
+        "giftCredit": 60,
+        "purchaseCredit": 0,
+        "vipCredit": 0,
+        "totalCredit": 60
+      }
+    }
+  ]
+}
+```
 
 ### 快速开始
 
@@ -219,6 +258,30 @@ curl -X POST http://localhost:8000/v1/audio/speech \
     "voice_name": "我的音色",
     "response_format": "url"
   }'
+```
+
+**检查用户信息示例：**
+
+```bash
+curl -X POST http://localhost:8000/token/info \
+  -H "Authorization: Bearer your_sessionid"
+```
+
+**检查单个 token 是否有效：**
+
+```bash
+curl -X POST http://localhost:8000/token/check \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": "your_sessionid"
+  }'
+```
+
+**查询账号积分：**
+
+```bash
+curl -X POST http://localhost:8000/token/points \
+  -H "Authorization: Bearer your_sessionid"
 ```
 
 **Seedance 2.0 多图视频示例：**

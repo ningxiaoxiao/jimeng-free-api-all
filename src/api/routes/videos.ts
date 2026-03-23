@@ -21,7 +21,7 @@ function parseArrayField(fieldName: string, value: any) {
         try {
             const parsed = JSON.parse(value);
             if (_.isArray(parsed)) return parsed;
-        } catch {}
+        } catch { }
     }
     throw new Error(`${fieldName} 必须是数组或 JSON 数组字符串`);
 }
@@ -184,9 +184,9 @@ export default {
             );
             const finalWaitForResult = _.isBoolean(finalWaitForResultField)
                 ? finalWaitForResultField
-                : finalAsync === true
-                    ? false
-                    : true;
+                : finalAsync === false
+                    ? true
+                    : false;
 
             if (!finalWaitForResult && response_format === "b64_json") {
                 throw new Error('async 提交不支持 b64_json，请使用 url 格式');

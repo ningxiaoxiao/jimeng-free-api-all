@@ -262,6 +262,41 @@ class BrowserService {
   }
 
   /**
+   * 健康检查：验证浏览器是否在线，断开则自动重启
+   * 该方法是安全的，失败时不会抛出异常
+   */
+  async healthCheck(): Promise<{
+    connected: boolean;
+    sessionsCount: number;
+    restarted: boolean;
+    error?: string;
+  }> {
+    const wasConnected = !!this.browser?.isConnected();
+    const sessionsCount = this.sessions.size;
+
+    if (wasConnected) {
+      logger.info(`BrowserService: 健康检查通过，浏览器在线，活跃会话数: ${sessionsCount}`);
+      return { connected: true, sessionsCount, restarted: false };
+    }
+
+    // 浏览器不在线，尝试重启
+    logger.warn(`BrowserService: 健康检查发现浏览器离线，正在尝试重启...`);
+    try {
+      await this.ensureBrowser();
+      logger.info(`BrowserService: 浏览器重启成功`);
+      return { connected: true, sessionsCount: 0, restarted: true };
+    } catch (err) {
+      logger.error(`BrowserService: 浏览器重启失败: ${(err as Error).message}`);
+      return {
+        connected: false,
+        sessionsCount: 0,
+        restarted: false,
+        error: (err as Error).message,
+      };
+    }
+  }
+
+  /**
    * 关闭所有会话和浏览器实例
    */
   async close() {

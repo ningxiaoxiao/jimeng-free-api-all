@@ -432,13 +432,17 @@ export function checkResult(result: AxiosResponse) {
  * @param authorization 认证字符串
  */
 export function tokenSplit(authorization: string) {
-  return authorization.replace("Bearer ", "").split(",");
+  return authorization
+    .replace("Bearer ", "")
+    .split(",")
+    .map(token => token.trim())
+    .filter(Boolean);
 }
 
 /**
- * 获取Token存活状态
+ * 获取Token关联的账户信息
  */
-export async function getTokenLiveStatus(refreshToken: string) {
+export async function getTokenAccountInfo(refreshToken: string) {
   const result = await request(
     "POST",
     "/passport/account/info/v2",
@@ -449,8 +453,97 @@ export async function getTokenLiveStatus(refreshToken: string) {
       },
     }
   );
+  return checkResult(result);
+}
+
+function maskToken(refreshToken: string) {
+  if (!refreshToken) return "";
+  if (refreshToken.length <= 8) return refreshToken;
+  return `${refreshToken.slice(0, 4)}****${refreshToken.slice(-4)}`;
+}
+
+function normalizeTokenAccountInfo(accountInfo: any) {
+  return {
+    userId: accountInfo?.user_id || null,
+    secUserId: accountInfo?.sec_user_id || null,
+    nickname:
+      accountInfo?.screen_name ||
+      accountInfo?.nickname ||
+      accountInfo?.nick_name ||
+      accountInfo?.name ||
+      null,
+    avatarUrl:
+      accountInfo?.avatar_url ||
+      accountInfo?.avatar?.url ||
+      accountInfo?.avatar_medium?.url ||
+      accountInfo?.avatar_thumb?.url ||
+      accountInfo?.avatar?.url_list?.[0] ||
+      accountInfo?.avatar_thumb?.url_list?.[0] ||
+      null,
+  };
+}
+
+/**
+ * 获取Token的用户信息与积分
+ */
+export async function getTokenUserInfo(refreshToken: string) {
+  const userInfo = {
+    tokenMasked: maskToken(refreshToken),
+    live: false,
+    user: null,
+    points: null,
+  } as {
+    tokenMasked: string;
+    live: boolean;
+    user: null | {
+      userId: string | null;
+      secUserId: string | null;
+      nickname: string | null;
+      avatarUrl: string | null;
+    };
+    points: null | {
+      giftCredit: number;
+      purchaseCredit: number;
+      vipCredit: number;
+      totalCredit: number;
+    };
+    errors?: {
+      account?: string;
+      points?: string;
+    };
+  };
+
   try {
-    const { user_id } = checkResult(result);
+    const accountInfo = await getTokenAccountInfo(refreshToken);
+    userInfo.live = !!accountInfo?.user_id;
+    if (!userInfo.live) return userInfo;
+    userInfo.user = normalizeTokenAccountInfo(accountInfo);
+  } catch (err) {
+    userInfo.errors = {
+      ...(userInfo.errors || {}),
+      account: err.message,
+    };
+    return userInfo;
+  }
+
+  try {
+    userInfo.points = await getCredit(refreshToken);
+  } catch (err) {
+    userInfo.errors = {
+      ...(userInfo.errors || {}),
+      points: err.message,
+    };
+  }
+
+  return userInfo;
+}
+
+/**
+ * 获取Token存活状态
+ */
+export async function getTokenLiveStatus(refreshToken: string) {
+  try {
+    const { user_id } = await getTokenAccountInfo(refreshToken);
     return !!user_id;
   } catch (err) {
     return false;
