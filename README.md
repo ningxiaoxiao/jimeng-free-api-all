@@ -102,6 +102,11 @@ docker run -it -d --init --name jimeng-free-api-all \
   jimeng-free-api-all:latest
 ```
 
+**推送到 GitHub Container Registry (GHCR)：**
+
+关于如何将镜像推送到 GHCR，请参考详细指南：[Docker 镜像推送指南 (GHCR)](./docs/DOCKER_GHCR.md)。
+
+
 ### 方式二：源码安装
 
 ```bash
@@ -153,6 +158,9 @@ Authorization: Bearer sessionid1,sessionid2,sessionid3
 | `/v1/images/generations` | POST | 文生图/图生图接口（支持 images 可选参数） |
 | `/v1/images/compositions` | POST | 图生图接口（向后兼容） |
 | `/v1/videos/generations` | POST | 视频生成接口 |
+| `/v1/videos/tasks` | GET | 查看本地已保存的异步视频任务记录 |
+| `/v1/videos/tasks/:historyId` | GET | 按 `history_id` 查询任务状态和下载 URL |
+| `/v1/videos/get_history_queue_info` | POST | 查询一个或多个 `history_id` 的排队信息 |
 | `/v1/audio/speech` | POST | TTS 语音生成接口 |
 | `/v1/models` | GET | 获取模型列表 |
 | `/token/check` | POST | 检查单个 sessionid 是否有效 |
@@ -401,6 +409,20 @@ curl -H "Authorization: Bearer your_sessionid" \
   http://localhost:8000/v1/videos/tasks/24506608820236
 ```
 
+**查询 history_id 对应的队列信息：**
+
+```bash
+curl -X POST http://localhost:8000/v1/videos/get_history_queue_info \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_sessionid" \
+  -d '{
+    "history_ids": [
+      "24506608820236",
+      "24506608820237"
+    ]
+  }'
+```
+
 ## 项目结构
 
 ```
@@ -579,6 +601,58 @@ jimeng-free-api-all/
 - 后续用 `GET /v1/videos/tasks/:historyId` 查询状态；完成后返回高清下载 URL
 - `material_list` / `meta_list` 需要使用真实的 `image_uri` / `vid`，不能直接传前端页面里的资源 UUID
 
+### 任务队列信息接口
+
+**POST /v1/videos/get_history_queue_info**
+
+用于批量查询即梦侧某些 `history_id` 当前的排队状态。接口会透传上游 `/mweb/v1/get_history_queue_info` 在每个 `history_id` 下的核心字段，便于直接读取 `queue_info.priority`、`forecast_cost_time.forecast_generate_cost`、`forecast_cost_time.forecast_queue_cost` 等信息。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| history_ids | array | 是* | `history_id` 数组，推荐写法 |
+| historyIds | array | 否 | `history_ids` 的兼容别名 |
+| history_id | string/number | 否 | 单个 `history_id` 的兼容写法 |
+| historyId | string/number | 否 | `history_id` 的兼容别名 |
+
+`*` 四种写法至少提供一种；服务端实际会统一转换为上游要求的 `history_ids` 数组。
+
+**返回结构：**
+
+- `queue_info_map`：以 `history_id` 为键，保留上游原始结果
+- `data`：按请求顺序返回的标准化数组，每项只保留 `status`、`queue_info`、`forecast_cost_time`
+
+```json
+{
+  "created": 1774621749,
+  "history_ids": ["30173515779596"],
+  "queue_info_map": {
+    "30173515779596": {
+      "status": 0,
+      "queue_info": {
+        "priority": 1
+      },
+      "forecast_cost_time": {
+        "forecast_generate_cost": 0,
+        "forecast_queue_cost": 0
+      }
+    }
+  },
+  "data": [
+    {
+      "history_id": "30173515779596",
+      "status": 0,
+      "queue_info": {
+        "priority": 1
+      },
+      "forecast_cost_time": {
+        "forecast_generate_cost": 0,
+        "forecast_queue_cost": 0
+      }
+    }
+  ]
+}
+```
+
 ## 效果展示
 
 ![image-20260209234137309](https://mypicture-1258720957.cos.ap-nanjing.myqcloud.com/Obsidian/image-20260209234137309.png)
@@ -705,6 +779,7 @@ Authorization: Bearer sessionid1,sessionid2,sessionid3
 - ✨ **支持异步提交 Seedance 视频**：新增 `async` / `wait_for_result`，适合批量口播生成；提交后立即返回 `submit_id` 和 `history_id`
 - ✨ **自动保存 history_id**：所有异步 Seedance 任务都会落盘到 `data/jimeng-video-tasks.jsonl`
 - ✨ **新增任务查询接口**：`GET /v1/videos/tasks` 查看保存记录，`GET /v1/videos/tasks/:historyId` 查询状态并返回高清下载 URL
+- ✨ **新增队列查询接口**：`POST /v1/videos/get_history_queue_info`，可批量查询 `history_id` 的 `status`、`queue_info` 和 `forecast_cost_time`
 - 🔧 **兼容中文冒号比例写法**：自动将 `16：9` 规范化为 `16:9`
 
 ### v0.8.6 (2026-02-20) - jimeng-5.0 正式版模型更新
