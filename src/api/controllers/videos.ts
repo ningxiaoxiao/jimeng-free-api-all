@@ -226,6 +226,47 @@ async function getVideoHistoryData(historyId: string, refreshToken: string) {
   return result.history_list?.[0] || result[historyId] || null;
 }
 
+function normalizeHistoryQueueInfoItem(historyId: string, queueInfoData: any) {
+  return {
+    history_id: historyId,
+    status: toFiniteNumber(queueInfoData?.status) ?? null,
+    queue_info: queueInfoData?.queue_info || null,
+    forecast_cost_time: queueInfoData?.forecast_cost_time || null,
+  };
+}
+
+export async function getHistoryQueueInfo(historyIds: string[], refreshToken: string) {
+  const normalizedHistoryIds = [...new Set(
+    historyIds
+      .map((historyId) => String(historyId || "").trim())
+      .filter(Boolean)
+  )];
+
+  if (!normalizedHistoryIds.length) {
+    throw new Error("history_ids 不能为空");
+  }
+
+  const queueInfoMap = await request("post", "/mweb/v1/get_history_queue_info", refreshToken, {
+    data: {
+      history_ids: normalizedHistoryIds,
+    },
+  });
+
+  const normalizedQueueInfoMap = normalizedHistoryIds.reduce((result, historyId) => {
+    result[historyId] = queueInfoMap?.[historyId] || null;
+    return result;
+  }, {} as Record<string, any>);
+
+  return {
+    created: util.unixTimestamp(),
+    history_ids: normalizedHistoryIds,
+    queue_info_map: normalizedQueueInfoMap,
+    data: normalizedHistoryIds.map((historyId) =>
+      normalizeHistoryQueueInfoItem(historyId, normalizedQueueInfoMap[historyId])
+    ),
+  };
+}
+
 async function resolveVideoUrlFromItemList(itemList: any[], refreshToken: string) {
   const itemId = itemList?.[0]?.item_id
     || itemList?.[0]?.id

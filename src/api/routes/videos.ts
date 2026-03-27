@@ -8,6 +8,7 @@ import {
     generateSeedanceVideo,
     isSeedanceModel,
     DEFAULT_MODEL,
+    getHistoryQueueInfo,
     listSavedVideoTasks,
     querySeedanceVideoTask,
     getVideoTaskStorePath,
@@ -81,6 +82,35 @@ export default {
     },
 
     post: {
+
+        '/get_history_queue_info': async (request: Request) => {
+            request
+                .validate('body.history_ids', v => _.isUndefined(v) || _.isArray(v) || _.isString(v))
+                .validate('body.historyIds', v => _.isUndefined(v) || _.isArray(v) || _.isString(v))
+                .validate('body.history_id', v => _.isUndefined(v) || _.isString(v) || _.isFinite(v))
+                .validate('body.historyId', v => _.isUndefined(v) || _.isString(v) || _.isFinite(v))
+                .validate('headers.authorization', _.isString);
+
+            const tokens = tokenSplit(request.headers.authorization);
+            const token = _.sample(tokens);
+            const historyIdsField = !_.isUndefined(request.body.historyIds)
+                ? request.body.historyIds
+                : request.body.history_ids;
+            const parsedHistoryIds = parseArrayField('history_ids', historyIdsField);
+            const singleHistoryId = !_.isUndefined(request.body.historyId)
+                ? request.body.historyId
+                : request.body.history_id;
+            const historyIds = parsedHistoryIds
+                || (_.isUndefined(singleHistoryId) || singleHistoryId === null || singleHistoryId === ''
+                    ? []
+                    : [String(singleHistoryId)]);
+
+            if (!historyIds.length) {
+                throw new Error('缺少 history_ids（或兼容字段 historyIds/history_id/historyId）');
+            }
+
+            return await getHistoryQueueInfo(historyIds.map(v => String(v)), token);
+        },
 
         '/generations': async (request: Request) => {
             // 检查是否使用了不支持的参数
