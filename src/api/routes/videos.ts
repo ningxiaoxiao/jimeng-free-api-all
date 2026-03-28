@@ -122,6 +122,12 @@ export default {
                 throw new Error(`不支持的参数: ${foundUnsupported.join(', ')}。请使用 ratio 和 resolution 参数控制视频尺寸。`);
             }
 
+            const removedSeedanceParams = ['materials', 'material_list', 'materialList', 'meta_list', 'metaList'];
+            const foundRemovedSeedanceParams = removedSeedanceParams.filter(param => bodyKeys.includes(param));
+            if (foundRemovedSeedanceParams.length > 0) {
+                throw new Error(`不再支持参数: ${foundRemovedSeedanceParams.join(', ')}。请改用 files 或 file_paths 重新上传素材。`);
+            }
+
             const contentType = request.headers['content-type'] || '';
             const isMultiPart = contentType.startsWith('multipart/form-data');
 
@@ -144,11 +150,6 @@ export default {
                 })
                 .validate('body.file_paths', v => _.isUndefined(v) || _.isArray(v))
                 .validate('body.filePaths', v => _.isUndefined(v) || _.isArray(v))
-                .validate('body.materials', v => _.isUndefined(v) || _.isArray(v) || _.isString(v))
-                .validate('body.material_list', v => _.isUndefined(v) || _.isArray(v) || _.isString(v))
-                .validate('body.materialList', v => _.isUndefined(v) || _.isArray(v) || _.isString(v))
-                .validate('body.meta_list', v => _.isUndefined(v) || _.isArray(v) || _.isString(v))
-                .validate('body.metaList', v => _.isUndefined(v) || _.isArray(v) || _.isString(v))
                 .validate('body.seed', v => _.isUndefined(v) || _.isFinite(v) || _.isString(v))
                 .validate('body.workspace_id', v => _.isUndefined(v) || _.isFinite(v) || _.isString(v))
                 .validate('body.workspaceId', v => _.isUndefined(v) || _.isFinite(v) || _.isString(v))
@@ -171,11 +172,6 @@ export default {
                 duration = 5,
                 file_paths = [],
                 filePaths = [],
-                materials,
-                material_list,
-                materialList,
-                meta_list,
-                metaList,
                 seed,
                 workspace_id,
                 workspaceId,
@@ -193,15 +189,6 @@ export default {
             // 兼容两种参数名格式：file_paths 和 filePaths
             const finalFilePaths = filePaths.length > 0 ? filePaths : file_paths;
             const finalRatio = normalizeRatio(ratio) || "1:1";
-            const finalMaterials = parseArrayField('materials', materials);
-            const finalMaterialList = parseArrayField(
-                'material_list',
-                !_.isUndefined(materialList) ? materialList : material_list
-            );
-            const finalMetaList = parseArrayField(
-                'meta_list',
-                !_.isUndefined(metaList) ? metaList : meta_list
-            );
             const finalSeed = parseNumberField('seed', seed);
             const finalWorkspaceId = parseNumberField(
                 'workspace_id',
@@ -240,9 +227,6 @@ export default {
                         duration: seedanceDuration,
                         filePaths: finalFilePaths,
                         files: request.files,
-                        materials: finalMaterials,
-                        materialList: finalMaterialList,
-                        metaList: finalMetaList,
                         seed: finalSeed,
                         workspaceId: finalWorkspaceId,
                         waitForResult: finalWaitForResult,

@@ -330,72 +330,6 @@ curl -X POST http://localhost:8000/v1/videos/generations \
   -F "files=@/path/to/audio.wav"
 ```
 
-**Seedance 直接复用已上传素材并异步提交：**
-
-```bash
-curl -X POST http://localhost:8000/v1/videos/generations \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your_sessionid" \
-  -d '{
-    "model": "seedance-2.0-fast",
-    "ratio": "16:9",
-    "resolution": "720p",
-    "duration": 10,
-    "async": true,
-    "material_list": [
-      {
-        "material_type": "image",
-        "image_info": {
-          "image_uri": "tos-cn-i-tb4s082cfz/your-background-uri",
-          "width": 1376,
-          "height": 768
-        }
-      },
-      {
-        "material_type": "image",
-        "image_info": {
-          "image_uri": "tos-cn-i-tb4s082cfz/your-face-a-uri",
-          "width": 746,
-          "height": 936
-        }
-      },
-      {
-        "material_type": "image",
-        "image_info": {
-          "image_uri": "tos-cn-i-tb4s082cfz/your-face-b-uri",
-          "width": 565,
-          "height": 523
-        }
-      },
-      {
-        "material_type": "image",
-        "image_info": {
-          "image_uri": "tos-cn-i-tb4s082cfz/your-layout-ref-uri",
-          "width": 2560,
-          "height": 1428
-        }
-      },
-      {
-        "material_type": "audio",
-        "audio_info": {
-          "vid": "v0d870g10004xxxxxxxxxxxx",
-          "duration": 14000
-        }
-      }
-    ],
-    "meta_list": [
-      { "meta_type": "text", "text": "参考" },
-      { "meta_type": "image", "material_ref": { "material_idx": 3 } },
-      { "meta_type": "text", "text": "的人物构图、布光和背景，保持背景物体的一致性。\n音色参考" },
-      { "meta_type": "audio", "material_ref": { "material_idx": 4 } },
-      { "meta_type": "text", "text": "。\n使用" },
-      { "meta_type": "image", "material_ref": { "material_idx": 1 } },
-      { "meta_type": "image", "material_ref": { "material_idx": 2 } },
-      { "meta_type": "text", "text": "拼凑为一个人物，生成一段口播，自然流畅的肢体语言，口播内容：\"内容行业真正贵的，从来都不是创意本身，而是试错成本。过去为什么MCN能成立？为什么艺人公司能成立？\"" }
-    ]
-  }'
-```
-
 **查看已保存的任务列表：**
 
 ```bash
@@ -578,9 +512,6 @@ jimeng-free-api-all/
 | duration | number | 否 | 4 | 视频时长 4-15 秒 |
 | files | file[] | 是* | - | 上传的素材文件（图片/视频/音频，multipart） |
 | file_paths | array | 是* | - | 素材URL数组（JSON） |
-| materials | array | 否 | [] | 直接传已上传素材的简化数组（`uri`/`vid`） |
-| material_list | array | 否 | [] | 直接传即梦抓包里的原始素材数组 |
-| meta_list | array | 否 | [] | 直接传即梦抓包里的原始 meta 数组 |
 | seed | number | 否 | 随机 | 随机种子 |
 | workspace_id | number | 否 | 0 | 工作区 ID |
 | async | boolean | 否 | false | 为 `true` 时只提交任务，立即返回 `history_id` |
@@ -599,7 +530,6 @@ jimeng-free-api-all/
 - 批量跑口播时，使用 `async: true`，接口会立即返回 `submit_id` 和 `history_id`
 - 任务会自动追加保存到 `data/jimeng-video-tasks.jsonl`
 - 后续用 `GET /v1/videos/tasks/:historyId` 查询状态；完成后返回高清下载 URL
-- `material_list` / `meta_list` 需要使用真实的 `image_uri` / `vid`，不能直接传前端页面里的资源 UUID
 
 ### 任务队列信息接口
 
@@ -773,9 +703,8 @@ Authorization: Bearer sessionid1,sessionid2,sessionid3
 
 ## 更新日志
 
-### v0.8.7 (2026-03-16) - Seedance 资源复用与异步批量提交
+### v0.8.7 (2026-03-16) - Seedance 异步批量提交
 
-- ✨ **支持直接复用即梦已上传素材**：`/v1/videos/generations` 新增 `materials`、`material_list`、`meta_list`，可直接提交抓包里的资源而无需重复上传
 - ✨ **支持异步提交 Seedance 视频**：新增 `async` / `wait_for_result`，适合批量口播生成；提交后立即返回 `submit_id` 和 `history_id`
 - ✨ **自动保存 history_id**：所有异步 Seedance 任务都会落盘到 `data/jimeng-video-tasks.jsonl`
 - ✨ **新增任务查询接口**：`GET /v1/videos/tasks` 查看保存记录，`GET /v1/videos/tasks/:historyId` 查询状态并返回高清下载 URL

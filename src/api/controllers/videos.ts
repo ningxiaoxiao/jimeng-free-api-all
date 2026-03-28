@@ -81,24 +81,6 @@ interface UploadedMaterial {
   platformType?: number;
 }
 
-interface DirectSeedanceMaterialInput {
-  type?: string;
-  material_type?: string;
-  uri?: string;
-  image_uri?: string;
-  vid?: string;
-  width?: number | string;
-  height?: number | string;
-  duration?: number | string;
-  fps?: number | string;
-  name?: string;
-  source_from?: string;
-  platform_type?: number | string;
-  image_info?: any;
-  video_info?: any;
-  audio_info?: any;
-}
-
 export interface SavedVideoTaskRecord {
   history_id: string;
   submit_id?: string;
@@ -389,72 +371,6 @@ export async function querySeedanceVideoTask(historyId: string, refreshToken: st
   };
 }
 
-function resolveDirectMaterialType(material: DirectSeedanceMaterialInput): SeedanceMaterialType {
-  const rawType = String(
-    material?.type
-    || material?.material_type
-    || (material?.image_info ? "image" : "")
-    || (material?.video_info ? "video" : "")
-    || (material?.audio_info ? "audio" : "")
-  ).toLowerCase();
-
-  if (rawType === "image" || rawType === "video" || rawType === "audio") {
-    return rawType;
-  }
-
-  throw new Error(`不支持的直接素材类型: ${rawType || "unknown"}`);
-}
-
-function normalizeDirectMaterial(
-  material: DirectSeedanceMaterialInput,
-  fallbackWidth: number,
-  fallbackHeight: number
-): UploadedMaterial {
-  const type = resolveDirectMaterialType(material);
-
-  if (type === "image") {
-    const info = material.image_info || material;
-    const uri = info.image_uri || info.uri;
-    if (!uri) throw new Error("图片直接素材缺少 image_uri/uri");
-    return {
-      type,
-      uri,
-      width: toFiniteNumber(info.width) || fallbackWidth,
-      height: toFiniteNumber(info.height) || fallbackHeight,
-      name: info.name || "",
-      sourceFrom: info.source_from || "upload",
-      platformType: toFiniteNumber(info.platform_type) || 1,
-    };
-  }
-
-  if (type === "video") {
-    const info = material.video_info || material;
-    const vid = info.vid;
-    if (!vid) throw new Error("视频直接素材缺少 vid");
-    return {
-      type,
-      vid,
-      width: toFiniteNumber(info.width),
-      height: toFiniteNumber(info.height),
-      duration: toFiniteNumber(info.duration),
-      fps: toFiniteNumber(info.fps),
-      name: info.name || "",
-      sourceFrom: info.source_from || "upload",
-    };
-  }
-
-  const info = material.audio_info || material;
-  const vid = info.vid;
-  if (!vid) throw new Error("音频直接素材缺少 vid");
-  return {
-    type,
-    vid,
-    duration: toFiniteNumber(info.duration),
-    name: info.name || "",
-    sourceFrom: info.source_from || "upload",
-  };
-}
-
 function buildSeedanceMaterialList(materials: UploadedMaterial[]) {
   return materials.map((mat) => {
     const base = { type: "", id: util.uuid() };
@@ -507,14 +423,6 @@ function buildSeedanceMaterialList(materials: UploadedMaterial[]) {
       }
     };
   });
-}
-
-function extractUploadedMaterialsFromMaterialList(
-  materialList: any[],
-  fallbackWidth: number,
-  fallbackHeight: number
-): UploadedMaterial[] {
-  return materialList.map((material) => normalizeDirectMaterial(material, fallbackWidth, fallbackHeight));
 }
 
 /**
@@ -1918,9 +1826,6 @@ export async function generateSeedanceVideo(
     duration = 4,
     filePaths = [],
     files = [],
-    materials = [],
-    materialList = [],
-    metaList = [],
     seed,
     workspaceId = 0,
     waitForResult = true,
@@ -1930,9 +1835,6 @@ export async function generateSeedanceVideo(
     duration?: number;
     filePaths?: string[];
     files?: any[];
-    materials?: DirectSeedanceMaterialInput[];
-    materialList?: any[];
-    metaList?: any[];
     seed?: number;
     workspaceId?: number;
     waitForResult?: boolean;
@@ -1960,18 +1862,8 @@ export async function generateSeedanceVideo(
   let uploadedMaterials: UploadedMaterial[] = [];
   let resolvedMaterialList: any[] = [];
 
-  if (materialList && materialList.length > 0) {
-    uploadedMaterials = extractUploadedMaterialsFromMaterialList(materialList, width, height);
-    resolvedMaterialList = materialList;
-    logger.info(`Seedance: 直接使用 ${materialList.length} 个现有素材`);
-  } else if (materials && materials.length > 0) {
-    uploadedMaterials = materials.map((material) => normalizeDirectMaterial(material, width, height));
-    resolvedMaterialList = buildSeedanceMaterialList(uploadedMaterials);
-    logger.info(`Seedance: 直接使用 ${materials.length} 个现有素材`);
-  }
-
   // 处理上传的文件（multipart/form-data）
-  if (uploadedMaterials.length === 0 && files && files.length > 0) {
+  if (files && files.length > 0) {
     logger.info(`Seedance: 开始处理 ${files.length} 个上传文件`);
 
     for (let i = 0; i < files.length; i++) {
@@ -2013,7 +1905,7 @@ export async function generateSeedanceVideo(
         }
       }
     }
-  } else if (uploadedMaterials.length === 0 && filePaths && filePaths.length > 0) {
+  } else if (filePaths && filePaths.length > 0) {
     logger.info(`Seedance: 开始上传 ${filePaths.length} 个文件`);
 
     for (let i = 0; i < filePaths.length; i++) {
@@ -2066,15 +1958,11 @@ export async function generateSeedanceVideo(
 
   logger.info(`Seedance: 成功上传 ${uploadedMaterials.length} 个文件`);
 
-  // 动态 benefit_type：包含视频素材时追加 _with_video 后缀
-  const hasVideoMaterial = uploadedMaterials.some(m => m.type === "video");
-  const finalBenefitType = hasVideoMaterial ? `${benefitType}_with_video` : benefitType;
+  // 含视频素材时仍使用基础 benefit_type；上游当前不接受追加 _with_video 的变体
+  const finalBenefitType = benefitType;
 
-  // 构建 material_list（支持图片/视频/音频）
   // 解析 prompt 中的素材占位符（@1, @2 等）并构建 meta_list
-  const resolvedMetaList = metaList.length > 0
-    ? metaList
-    : buildMetaListFromPrompt(finalPrompt, uploadedMaterials);
+  const resolvedMetaList = buildMetaListFromPrompt(finalPrompt, uploadedMaterials);
 
   const componentId = util.uuid();
   const submitId = util.uuid();
