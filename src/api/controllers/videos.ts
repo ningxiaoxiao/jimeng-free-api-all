@@ -35,7 +35,7 @@ const MODEL_MAP = {
   "jimeng-video-3.0": "dreamina_ic_generate_video_model_vgfm_3.0",
   "jimeng-video-2.0": "dreamina_ic_generate_video_model_vgfm_lite",
   "jimeng-video-2.0-pro": "dreamina_ic_generate_video_model_vgfm1.0",
-  // Seedance 多图智能视频生成模型（jimeng-video-seedance-2.0 为上游标准名称）
+  // Seedance 智能视频生成模型（jimeng-video-seedance-2.0 为上游标准名称）
   "jimeng-video-seedance-2.0": "dreamina_seedance_40_pro",
   "seedance-2.0": "dreamina_seedance_40_pro",
   "seedance-2.0-pro": "dreamina_seedance_40_pro",
@@ -1808,8 +1808,8 @@ export async function generateVideo(
 }
 
 /**
- * Seedance 2.0 多图智能视频生成
- * 支持多张图片与文本混合生成视频
+ * Seedance 2.0 智能视频生成
+ * 支持文生视频，也支持图片/视频/音频与文本混合生成视频
  *
  * @param _model 模型名称
  * @param prompt 提示词（支持 @1 @2 等引用图片占位符）
@@ -1948,15 +1948,15 @@ export async function generateSeedanceVideo(
     }
   }
 
-  if (uploadedMaterials.length === 0) {
-    throw new APIException(EX.API_REQUEST_FAILED, 'Seedance 2.0 需要至少一个文件（图片/视频/音频）');
-  }
-
   if (resolvedMaterialList.length === 0) {
     resolvedMaterialList = buildSeedanceMaterialList(uploadedMaterials);
   }
 
-  logger.info(`Seedance: 成功上传 ${uploadedMaterials.length} 个文件`);
+  if (uploadedMaterials.length > 0) {
+    logger.info(`Seedance: 成功上传 ${uploadedMaterials.length} 个文件`);
+  } else {
+    logger.info("Seedance: 未提供素材，使用纯文本模式生成视频");
+  }
 
   // 含视频素材时仍使用基础 benefit_type；上游当前不接受追加 _with_video 的变体
   const finalBenefitType = benefitType;

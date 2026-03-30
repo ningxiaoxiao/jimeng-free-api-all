@@ -125,31 +125,31 @@ export default {
                         "id": "jimeng-video-seedance-2.0",
                         "object": "model",
                         "owned_by": "jimeng-free-api",
-                        "description": "Seedance 2.0 多图智能视频生成模型（上游标准名称，支持4-15秒，多张图片混合生成视频）"
+                        "description": "Seedance 2.0 智能视频生成模型（上游标准名称，支持4-15秒，支持文生视频和多素材混合生成）"
                     },
                     {
                         "id": "seedance-2.0",
                         "object": "model",
                         "owned_by": "jimeng-free-api",
-                        "description": "Seedance 2.0 多图智能视频生成模型（jimeng-video-seedance-2.0 的别名，向后兼容）"
+                        "description": "Seedance 2.0 智能视频生成模型（jimeng-video-seedance-2.0 的别名，向后兼容）"
                     },
                     {
                         "id": "seedance-2.0-pro",
                         "object": "model",
                         "owned_by": "jimeng-free-api",
-                        "description": "Seedance 2.0 Pro 多图智能视频生成模型（jimeng-video-seedance-2.0 的别名，向后兼容）"
+                        "description": "Seedance 2.0 Pro 智能视频生成模型（jimeng-video-seedance-2.0 的别名，向后兼容）"
                     },
                     {
                         "id": "jimeng-video-seedance-2.0-fast",
                         "object": "model",
                         "owned_by": "jimeng-free-api",
-                        "description": "Seedance 2.0-fast 快速多图智能视频生成模型（上游标准名称，支持4-15秒）"
+                        "description": "Seedance 2.0-fast 快速智能视频生成模型（上游标准名称，支持4-15秒，支持文生视频和多素材混合生成）"
                     },
                     {
                         "id": "seedance-2.0-fast",
                         "object": "model",
                         "owned_by": "jimeng-free-api",
-                        "description": "Seedance 2.0-fast 快速多图智能视频生成模型（jimeng-video-seedance-2.0-fast 的别名，向后兼容）"
+                        "description": "Seedance 2.0-fast 快速智能视频生成模型（jimeng-video-seedance-2.0-fast 的别名，向后兼容）"
                     }
                 ]
             };

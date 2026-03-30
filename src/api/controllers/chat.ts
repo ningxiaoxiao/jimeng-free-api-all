@@ -70,36 +70,29 @@ export async function createCompletion(
 
         // 判断是否为 Seedance 模型
         if (isSeedanceModel(_model)) {
-          // Seedance 模型需要图片，在 chat 模式下不支持图片上传
-          // 返回友好提示
-          return {
-            id: util.uuid(),
-            model: _model,
-            object: "chat.completion",
-            choices: [
-              {
-                index: 0,
-                message: {
-                  role: "assistant",
-                  content: `Seedance 2.0 是多图智能视频生成模型，需要上传图片才能生成视频。\n\n请使用 POST /v1/videos/generations API 接口：\n\n\`\`\`bash\ncurl -X POST http://localhost:3000/v1/videos/generations \\\n  -H "Authorization: your_token" \\\n  -F "model=jimeng-video-seedance-2.0" \\\n  -F "prompt=@1 图片中的人物开始跳舞" \\\n  -F "ratio=4:3" \\\n  -F "duration=4" \\\n  -F "files=@/path/to/image1.jpg" \\\n  -F "files=@/path/to/image2.jpg"\n\`\`\`\n\n**参数说明：**\n- \`model\`: jimeng-video-seedance-2.0（推荐）、jimeng-video-seedance-2.0-fast（快速版）或 seedance-2.0（兼容）\n- \`prompt\`: 提示词，使用 @1, @2 等引用上传的图片\n- \`ratio\`: 视频比例 (默认 4:3)\n- \`duration\`: 视频时长 4-15 秒 (默认 4 秒)\n- \`files\`: 上传的图片文件（支持多张）`,
-                },
-                finish_reason: "stop",
-              },
-            ],
-            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-            created: util.unixTimestamp(),
-          };
-        }
+          const seedanceResult = await generateSeedanceVideo(
+            _model,
+            messages[messages.length - 1].content,
+            {
+              ratio: "4:3",
+              resolution: "720p",
+              duration: 4,
+            },
+            refreshToken
+          );
 
-        videoUrl = await generateVideo(
-          _model,
-          messages[messages.length - 1].content,
-          {
-            ratio: "16:9",
-            resolution: "720p", // 默认分辨率
-          },
-          refreshToken
-        );
+          videoUrl = seedanceResult.url || "";
+        } else {
+          videoUrl = await generateVideo(
+            _model,
+            messages[messages.length - 1].content,
+            {
+              ratio: "16:9",
+              resolution: "720p", // 默认分辨率
+            },
+            refreshToken
+          );
+        }
         
         logger.info(`视频生成成功，URL: ${videoUrl}`);
         return {
