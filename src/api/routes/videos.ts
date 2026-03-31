@@ -215,8 +215,8 @@ export default {
             if (isSeedanceModel(model)) {
                 // Seedance 2.0 智能视频生成（支持文生和多素材）
                 // Seedance 默认时长为 4 秒，默认比例为 4:3
-                const seedanceDuration = finalDuration === 5 ? 4 : finalDuration; // 如果是默认的5秒，转为4秒
-                const seedanceRatio = finalRatio === "1:1" ? "4:3" : finalRatio; // 如果是默认的1:1，转为4:3
+                const seedanceDuration = finalDuration;
+                const seedanceRatio = finalRatio;
 
                 seedanceResult = await generateSeedanceVideo(
                     model,
